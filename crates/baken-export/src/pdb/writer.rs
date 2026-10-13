@@ -7,8 +7,11 @@
 //! 2 and 3.
 
 use super::fixed::{CATEGORY_ROWS, COLORS, COLUMNS, SORT_ROWS};
-use super::page::{header_page, index_page, DataPage, HeaderStyle, PAGE_LEN};
+use super::page::HeaderStyle;
+#[cfg(test)]
+use super::page::PAGE_LEN;
 use super::rows::{self, TrackRow};
+use super::tables::{write_tables, Row, Table};
 
 pub const NUM_TABLES: u32 = 20;
 
@@ -41,19 +44,8 @@ pub struct Export {
     pub export_date: String,
 }
 
-/// Encodes one row given its position in the page.
-type Row<'a> = Box<dyn Fn(usize) -> Vec<u8> + 'a>;
-
 fn row<'a>(f: impl Fn(usize) -> Vec<u8> + 'a) -> Row<'a> {
-    Box::new(f)
-}
-
-struct Table<'a> {
-    ty: u32,
-    style: HeaderStyle,
-    /// Fixed sequence for colors/columns, otherwise taken from the counter.
-    seq: Option<u32>,
-    rows: Vec<Row<'a>>,
+    Box::new(move |position| Ok(f(position)))
 }
 
 fn tables(e: &Export) -> Vec<Table<'_>> {
@@ -142,68 +134,7 @@ fn tables(e: &Export) -> Vec<Table<'_>> {
 
 /// Serialise the export. The result is a whole number of 4096-byte pages.
 pub fn write(e: &Export) -> Vec<u8> {
-    let tables = tables(e);
-    let mut pages: Vec<Vec<u8>> = vec![Vec::new()]; // page 0 filled last
-    let mut pointers = Vec::new();
-    let mut next_seq = 10u32;
-    let mut max_seq = 3u32;
-    // (table index, index page position, data pages) resolved once empties are known
-    let mut pending: Vec<(u32, usize, Vec<DataPage>)> = Vec::new();
-
-    for t in &tables {
-        let index_pos = pages.len();
-        pages.push(Vec::new());
-        let mut data: Vec<DataPage> = Vec::new();
-        let mut page = DataPage::new(pages.len() as u32, t.ty, 0, t.style);
-        for make in &t.rows {
-            let row = make(page.rows());
-            if !page.try_push(&row) {
-                data.push(page);
-                page = DataPage::new((pages.len() + data.len()) as u32, t.ty, 0, t.style);
-                let row = make(0);
-                assert!(page.try_push(&row), "row larger than a page");
-            }
-        }
-        if !page.is_empty() {
-            data.push(page);
-        }
-        for p in &mut data {
-            p.seq = match t.seq {
-                Some(s) => s,
-                None => {
-                    next_seq += 1;
-                    next_seq
-                }
-            };
-            max_seq = max_seq.max(p.seq);
-            pages.push(Vec::new());
-        }
-        pending.push((t.ty, index_pos, data));
-    }
-
-    let first_empty = pages.len() as u32;
-    for (i, (ty, index_pos, mut data)) in pending.into_iter().enumerate() {
-        let empty = first_empty + i as u32;
-        let first_data = data.first().map(|p| p.index);
-        let last = data.last().map(|p| p.index).unwrap_or(index_pos as u32);
-        pointers.push((ty, empty, index_pos as u32, last));
-        pages[index_pos] = index_page(
-            index_pos as u32,
-            ty,
-            first_data.unwrap_or(empty),
-            first_data,
-        );
-        let n = data.len();
-        for (k, p) in data.iter_mut().enumerate() {
-            p.next = if k + 1 < n { p.index + 1 } else { empty };
-            pages[p.index as usize] = p.to_bytes();
-        }
-    }
-    for _ in 0..NUM_TABLES {
-        pages.push(vec![0u8; PAGE_LEN]);
-    }
-    pages[0] = header_page(NUM_TABLES, pages.len() as u32, max_seq + 1, &pointers);
-    pages.concat()
+    write_tables(&tables(e)).expect("valid classic DeviceSQL export")
 }
 
 #[cfg(test)]
