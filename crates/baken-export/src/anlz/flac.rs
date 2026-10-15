@@ -32,6 +32,7 @@ struct Stream {
     block_size: u64,
     /// 0 when the encoder did not know (a stream written to a pipe).
     total_samples: u64,
+    sample_rate: u32,
 }
 
 fn stream(file: &mut File) -> Result<Stream> {
@@ -52,6 +53,7 @@ fn stream(file: &mut File) -> Result<Stream> {
             info = Some((
                 u16::from_be_bytes([s[2], s[3]]) as u64,
                 packed & ((1 << 36) - 1),
+                (packed >> 44) as u32,
             ));
         }
         pos += 4 + len;
@@ -60,13 +62,18 @@ fn stream(file: &mut File) -> Result<Stream> {
             break;
         }
     }
-    let (block_size, total_samples) = info.context("no STREAMINFO")?;
+    let (block_size, total_samples, sample_rate) = info.context("no STREAMINFO")?;
     Ok(Stream {
         audio_start: pos,
         block_size,
         total_samples,
+        sample_rate,
     })
 }
+
+#[path = "flac/frame_index.rs"]
+mod frame_index;
+pub use frame_index::{frame_index, FrameIndex, FramePoint};
 
 /// A frame header.
 struct Frame {
@@ -443,6 +450,64 @@ mod tests {
         path
     }
 
+    #[test]
+    fn full_frame_index_reuses_scanner_for_fixed_variable_and_short_last_frames() {
+        for variable in [false, true] {
+            let (bytes, expected) = flac(
+                30_123,
+                variable,
+                |n| {
+                    if variable {
+                        [1024, 2048, 4096][n as usize % 3]
+                    } else {
+                        4096
+                    }
+                },
+                |_| 130,
+            );
+            let path = write(
+                if variable {
+                    "all-variable.flac"
+                } else {
+                    "all-fixed.flac"
+                },
+                &bytes,
+            );
+            let index = frame_index(&path).unwrap();
+            assert_eq!(index.sample_rate, 44100);
+            assert_eq!(index.total_samples, 30123);
+            assert_eq!(
+                index
+                    .frames
+                    .iter()
+                    .map(|f| (f.sample, f.offset))
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            assert!(index.audio_start > 34 + 4);
+            assert_eq!(
+                index.frames.last().unwrap().sample
+                    + u64::from(index.frames.last().unwrap().block_size),
+                30123
+            );
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+    #[test]
+    fn full_frame_index_refuses_unknown_counts_and_incomplete_frames() {
+        let (mut bytes, _) = flac(20_000, false, |_| 4096, |_| 130);
+        bytes.truncate(bytes.len() / 2);
+        let path = write("all-truncated.flac", &bytes);
+        assert!(frame_index(&path).is_err());
+        let (mut bytes, _) = flac(20_000, false, |_| 4096, |_| 130);
+        let at = 8 + 10;
+        let packed =
+            u64::from_be_bytes(bytes[at..at + 8].try_into().unwrap()) & !((1u64 << 36) - 1);
+        bytes[at..at + 8].copy_from_slice(&packed.to_be_bytes());
+        std::fs::write(&path, bytes).unwrap();
+        assert!(frame_index(&path).is_err());
+        std::fs::remove_file(path).unwrap();
+    }
     #[test]
     fn headers_carry_their_number_and_block_size() {
         let h = header(&frame_header(false, 0x1234, 4096)).unwrap();
