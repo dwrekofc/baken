@@ -12,6 +12,7 @@ pub struct FramePoint {
 pub struct FrameIndex {
     pub sample_rate: u32,
     pub total_samples: u64,
+    pub declared_total_samples: u64,
     pub audio_start: u64,
     pub frames: Vec<FramePoint>,
 }
@@ -19,8 +20,23 @@ pub struct FrameIndex {
 /// as in seek_table; callers must also validate decoded audio independently.
 /// This API exposes frame headers/locations, not a new audio decoder.
 pub fn frame_index(path: &Path) -> Result<FrameIndex> {
+    read_index(path, None)
+}
+/// Support STREAMINFO's unknown count using an independently decoded count.
+/// A known count must match it; zero or mismatching measured counts refuse.
+pub fn frame_index_with_samples(path: &Path, decoded_samples: u64) -> Result<FrameIndex> {
+    read_index(path, Some(decoded_samples))
+}
+fn read_index(path: &Path, decoded_samples: Option<u64>) -> Result<FrameIndex> {
     let mut file = File::open(path)?;
-    let stream = stream(&mut file)?;
+    let mut stream = stream(&mut file)?;
+    let declared_total_samples = stream.total_samples;
+    if let Some(samples) = decoded_samples {
+        if samples == 0 || (stream.total_samples != 0 && stream.total_samples != samples) {
+            bail!("independently decoded sample count differs from STREAMINFO");
+        }
+        stream.total_samples = samples;
+    }
     if stream.sample_rate == 0 || stream.total_samples == 0 || stream.block_size == 0 {
         bail!("STREAMINFO has no supported rate/sample/block count");
     }
@@ -59,6 +75,7 @@ pub fn frame_index(path: &Path) -> Result<FrameIndex> {
     Ok(FrameIndex {
         sample_rate: stream.sample_rate,
         total_samples: stream.total_samples,
+        declared_total_samples,
         audio_start: stream.audio_start,
         frames: out,
     })

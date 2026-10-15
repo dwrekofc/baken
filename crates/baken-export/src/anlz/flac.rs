@@ -73,7 +73,7 @@ fn stream(file: &mut File) -> Result<Stream> {
 
 #[path = "flac/frame_index.rs"]
 mod frame_index;
-pub use frame_index::{frame_index, FrameIndex, FramePoint};
+pub use frame_index::{frame_index, frame_index_with_samples, FrameIndex, FramePoint};
 
 /// A frame header.
 struct Frame {
@@ -506,6 +506,11 @@ mod tests {
         bytes[at..at + 8].copy_from_slice(&packed.to_be_bytes());
         std::fs::write(&path, bytes).unwrap();
         assert!(frame_index(&path).is_err());
+        let measured = frame_index_with_samples(&path, 20_000).unwrap();
+        assert_eq!(measured.declared_total_samples, 0);
+        assert_eq!(measured.total_samples, 20_000);
+        assert!(frame_index_with_samples(&path, 0).is_err());
+        assert!(frame_index_with_samples(&path, 20_001).is_err());
         std::fs::remove_file(path).unwrap();
     }
     #[test]
