@@ -46,6 +46,17 @@ fn parse(word: u32) -> Result<common::FrameHeader> {
     }
     Ok(value)
 }
+/// Parse one Layer 3 header through the same imported parser as the full index.
+/// Callers may use this for bounded synchronization probes without copying tables.
+pub fn header_facts(word: u32) -> Result<(u32, u32, u32)> {
+    let header = parse(word)?;
+    Ok((
+        u32::try_from(header.frame_size + 4)?,
+        header.bitrate,
+        header.sample_rate,
+    ))
+}
+
 /// Read contiguous Layer 3 frames after leading ID3v2 metadata and before
 /// trailing ID3v1. Other discontinuities refuse rather than invent locations.
 pub fn frame_index(path: &Path) -> Result<FrameIndex> {
