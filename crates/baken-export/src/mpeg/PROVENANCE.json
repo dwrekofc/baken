@@ -1,0 +1,18 @@
+{
+  "project": "Symphonia",
+  "version": "0.6.1",
+  "revision": "ee35874b571a35a9a6e15d3bc9a3aaf8f11fbeee",
+  "path": "symphonia-bundle-mp3/src",
+  "license": "MPL-2.0",
+  "changes": "Import paths and rustfmt only; header parser and frame semantics unchanged",
+  "files": {
+    "header.rs": {
+      "upstream_sha256": "59e870a43bc73fef45c3f492bd2c1b5fd33fd0aab7f9be72e20850f262a4573a",
+      "port_sha256": "02827090474c5a9b1b25ba65aba5eabb2059a450cd810f297bd7588fba226a01"
+    },
+    "common.rs": {
+      "upstream_sha256": "38f787c30465cfc77f93078252ed298070d1d249eb5e88f5d2579e3f65adbcab",
+      "port_sha256": "3fb10b1299c5c9a8e6e6a2d9427ee186e9be50356e5bec6e61ab1a69179edf02"
+    }
+  }
+}

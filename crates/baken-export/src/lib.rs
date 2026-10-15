@@ -11,6 +11,7 @@ pub mod build;
 pub mod collection;
 mod error;
 pub mod layout;
+pub mod mpeg;
 pub mod onelibrary;
 pub mod pdb;
 pub mod settings;
