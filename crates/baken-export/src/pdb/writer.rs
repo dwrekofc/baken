@@ -137,6 +137,43 @@ pub fn write(e: &Export) -> Vec<u8> {
     write_tables(&tables(e)).expect("valid classic DeviceSQL export")
 }
 
+/// Extra format-specific rows for an existing, empty table. The established
+/// model retains ownership of the table inventory, styles and sequence rules.
+pub struct TableRows<'a> {
+    pub ty: u32,
+    pub rows: Vec<Row<'a>>,
+}
+
+/// Fill empty tables without replacing the model's existing records. Callbacks
+/// retain the page engine's fallible encoding and rollover-position contract.
+/// An empty extension produces exactly the same bytes as [`write`].
+pub fn write_with_empty_table_rows<'a>(
+    e: &'a Export,
+    additions: Vec<TableRows<'a>>,
+) -> Result<Vec<u8>, super::tables::WriteError> {
+    use super::tables::WriteError;
+    let mut base = tables(e);
+    let mut seen = std::collections::BTreeSet::new();
+    for addition in additions {
+        if !seen.insert(addition.ty) {
+            return Err(WriteError::DuplicateTable);
+        }
+        let table = base
+            .iter_mut()
+            .find(|table| table.ty == addition.ty)
+            .ok_or(WriteError::UnknownTable(addition.ty))?;
+        if !table.rows.is_empty() {
+            return Err(WriteError::PopulatedTable(addition.ty));
+        }
+        table.rows = addition.rows;
+    }
+    write_tables(&base)
+}
+
+#[cfg(test)]
+#[path = "table_rows_tests.rs"]
+mod table_rows_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -7,4 +7,4 @@ pub mod string;
 pub mod tables;
 pub mod writer;
 
-pub use writer::{write, Export, ExportPlaylist};
+pub use writer::{write, write_with_empty_table_rows, Export, ExportPlaylist, TableRows};

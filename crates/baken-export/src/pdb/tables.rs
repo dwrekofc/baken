@@ -16,6 +16,10 @@ pub struct Table<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum WriteError {
+    #[error("unknown DeviceSQL table {0}")]
+    UnknownTable(u32),
+    #[error("DeviceSQL table {0} is already populated")]
+    PopulatedTable(u32),
     #[error("table inventory exceeds the header page")]
     TooManyTables,
     #[error("duplicate table type")]
