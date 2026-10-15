@@ -34,7 +34,7 @@ pub struct FrameIndex {
     pub frames: Vec<Frame>,
 }
 fn compatible(a: u32, b: u32) -> bool {
-    (a ^ b) & 0xfffe_0ccf == 0
+    (a ^ b) & 0xfffe_0c00 == 0
 }
 fn parse(word: u32) -> Result<common::FrameHeader> {
     if !header::is_frame_header_word_synced(word) {
@@ -89,7 +89,8 @@ pub fn frame_index(path: &Path) -> Result<FrameIndex> {
         reader = metadata.into_inner();
     }
     let scan_start = reader.pos();
-    // The original also requires three compatible consecutive initial frames.
+    // Require three structurally compatible consecutive frames. Native profile
+    // selection may exclude an earlier metadata frame and belongs to the caller.
     let (start, first) = loop {
         let word = header::sync_frame(&mut reader)?;
         let start = reader.pos() - 4;
@@ -107,7 +108,11 @@ pub fn frame_index(path: &Path) -> Result<FrameIndex> {
             reader.seek(SeekFrom::Start(next))?;
             let candidate = reader.read_be_u32()?;
             match parse(candidate) {
-                Ok(frame) if compatible(word, candidate) => next += 4 + frame.frame_size as u64,
+                Ok(frame)
+                    if compatible(word, candidate) && first.n_channels() == frame.n_channels() =>
+                {
+                    next += 4 + frame.frame_size as u64
+                }
                 _ => {
                     valid = false;
                     break;
@@ -129,7 +134,7 @@ pub fn frame_index(path: &Path) -> Result<FrameIndex> {
         }
         let word = reader.read_be_u32()?;
         let h = parse(word)?;
-        if !compatible(first, word) {
+        if !compatible(first, word) || h.n_channels() != initial.n_channels() {
             bail!("MP3 frame profile changed");
         }
         let bytes = u32::try_from(h.frame_size + 4).context("MP3 frame size overflow")?;
@@ -202,7 +207,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("baken-mpeg-bad-{}.mp3", std::process::id()));
         for words in [
             &[0xfffb9000, 0xfffb9000][..],
-            &[0xfffb9000, 0xfffb9004, 0xfffb9000][..],
+            &[0xfffb9000, 0xfffb90c0, 0xfffb9000][..],
         ] {
             std::fs::write(&path, bytes(words)).unwrap();
             assert!(frame_index(&path).is_err());
